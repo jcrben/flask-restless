@@ -35,7 +35,7 @@ to combine these two Marshmallow layers together.)
 
 To install the necessary requirements for this example, run::
 
-    pip install flask-restless flask-sqlalchemy marshmallow-jsonapi
+    pip install flask-restless==1.0.0b2.dev0 flask-sqlalchemy==2.3.2 marshmallow-jsonapi==0.16.0
 
 To run this script from the current directory::
 
@@ -126,7 +126,8 @@ class ArticleSchema(Schema):
         related_url='/api/person/{personid}',
         related_url_kwargs={'personid': '<id>'},
         include_data=True,
-        type_='author'
+        type_='person',
+        schema=PersonSchema
     )
 
     @post_load
