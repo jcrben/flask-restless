@@ -100,7 +100,7 @@ setup(
     keywords=['ReST', 'API', 'Flask'],
     license='GNU AGPLv3+ or BSD',
     long_description=__doc__,
-    name='Flask-Restless',
+    name='Flask-Restless-jcrben',
     platforms='any',
     packages=find_packages(exclude=['tests', 'tests.*']),
     test_suite='tests',
