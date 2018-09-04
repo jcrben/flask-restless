@@ -74,7 +74,7 @@ class Person(db.Model):
     __tablename__ = 'person'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.Unicode)
-    # articles = db.relationship('Article', backref=db.backref('author'))
+    articles = db.relationship('Article', back_populates='author')
 
 
 class Article(db.Model):
@@ -82,7 +82,7 @@ class Article(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.Unicode)
     author_id = db.Column(db.Unicode, db.ForeignKey(Person.id))
-    author = db.relationship(Person, backref=db.backref('articles'))
+    author = db.relationship(Person, back_populates='articles')
 
 
 # Marshmallow schema definitions #
@@ -159,6 +159,8 @@ class MarshmallowDeserializer(DefaultDeserializer):
 
     schema_class = None
 
+    # def _process_and_rm_existing(self, ):
+
     def deserialize(self, document):
         # import json
         schema = self.schema_class()
@@ -173,20 +175,22 @@ class MarshmallowDeserializer(DefaultDeserializer):
         ids = []
         for (key, val) in posted_rltns.items():
             data = val.get('data')
-            if isinstance(data, list):
-                for x in data:
-                    d = {}
-                    d[key] = x.get('id')
-                    ids.append(d)
+            data = data if (isinstance(data, list)) else [data]
+
+            for x in data:
+                d = {}
+                d[key] = x.get('id')
+                ids.append(d)
             else:
                 d = {}
                 d[key] = data.get('id')
                 ids.append(d)
 
+
         existing = []
         for id in ids:
-            field, val = list(id.keys())
-            rltd_model = getattr(self.model, field)
+            field, val = list(id.items())[0]
+            rltd_model = getattr(self.model, field).property.mapper.class_
             exist = self.session.query(rltd_model).get(val)
             if exist != None:
                 existing.append(exist)
