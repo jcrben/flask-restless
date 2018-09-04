@@ -21,6 +21,9 @@ import sys
 from flask import json
 from flask import request
 from werkzeug.exceptions import BadRequest
+from sqlalchemy.orm.base import object_mapper
+from sqlalchemy.orm.exc import UnmappedInstanceError
+
 
 from ..helpers import collection_name
 from ..helpers import get_by
@@ -47,6 +50,14 @@ STRING_TYPES = (str, )
 
 if sys.version_info < (3, 0):
     STRING_TYPES += (unicode, )  # noqa
+
+
+def is_mapped(obj):
+    try:
+        object_mapper(obj)
+    except UnmappedInstanceError:
+        return False
+    return True
 
 
 def errors_from_deserialization_exceptions(exceptions, included=False):
@@ -472,6 +483,12 @@ class API(APIBase):
             # Flush all changes to database but do not commit the transaction
             # so that postprocessors have the chance to roll it back
             self.session.flush()
+            # TODO: update this to append
+            # relationships = getattr(document, 'relationships', {});
+            # data = document.get('data')
+            # resource_id = instance.id
+            # self._update_instance(instance, data, resource_id, request)
+            self.session.flush()
         # This also catches subclasses of `DeserializationException`,
         # like ClientGeneratedIDNotAllowed and ConflictingType.
         except DeserializationException as exception:
@@ -489,6 +506,7 @@ class API(APIBase):
             return errors_from_serialization_exceptions([exception])
         # Determine the value of the primary key for this instance and
         # encode URL-encode it (in case it is a Unicode string).
+        # TODO: add any links
         primary_key = primary_key_value(instance, as_string=True)
         # The URL at which a client can access the newly created instance
         # of the model.
@@ -513,7 +531,7 @@ class API(APIBase):
         self.session.commit()
         return jsonpify(result), status, headers
 
-    def _update_instance(self, instance, data, resource_id):
+    def _update_instance(self, instance, data, resource_id, request=None):
         """Updates the attributes and relationships of the specified instance
         according to the elements in the `data` dictionary.
 
@@ -567,6 +585,8 @@ class API(APIBase):
                     return error_response(400, detail=detail)
                 # If this is left empty, the relationship will be zeroed.
                 newvalue = []
+                if request.method == 'POST':
+                    newvalue = getattr(instance, linkname, [])
                 not_found = []
                 for rel in linkage:
                     expected_type = collection_name(related_model)
@@ -625,24 +645,33 @@ class API(APIBase):
         data = data.pop('attributes', {})
         # Check for any request parameter naming a column which does not exist
         # on the current model.
-        for field in data:
-            if not has_field(self.model, field):
-                detail = "Model does not have field '{0}'".format(field)
-                return error_response(400, detail=detail)
-        # Special case: if there are any dates, convert the string form of the
-        # date into an instance of the Python ``datetime`` object.
-        data = dict((k, string_to_datetime(self.model, k, v))
-                    for k, v in data.items())
-        # Finally, update each attribute individually.
-        try:
-            if data:
-                for field, value in data.items():
-                    setattr(instance, field, value)
-            # Flush all changes to database but do not commit the transaction
-            # so that postprocessors have the chance to roll it back
-            self.session.flush()
-        except self.validation_exceptions as exception:
-            return self._handle_validation_exception(exception)
+        if request.method == 'PATCH':
+            for field in data:
+                if not has_field(self.model, field):
+                    detail = "Model does not have field '{0}'".format(field)
+                    return error_response(400, detail=detail)
+            # Special case: if there are any dates, convert the string form of the
+            # date into an instance of the Python ``datetime`` object.
+            data = dict((k, string_to_datetime(self.model, k, v))
+                        for k, v in data.items())
+            # Finally, update each attribute individually.
+            try:
+                if data:
+                    # relationships = self.model.__mapper__.relationships.items()
+                    # map = {}
+                    # for i, val in self.model.__mapper__.relationships.items():
+                    #     map[i] = val
+                    #
+                    for field, value in data.items():
+                    #     if map[field]:
+                    #
+                    #     else:
+                        setattr(instance, field, value)
+                # Flush all changes to database but do not commit the transaction
+                # so that postprocessors have the chance to roll it back
+                self.session.flush()
+            except self.validation_exceptions as exception:
+                return self._handle_validation_exception(exception)
 
     def patch(self, resource_id):
         """Updates the resource with the specified ID according to the request

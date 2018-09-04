@@ -57,6 +57,8 @@ from flask_sqlalchemy import SQLAlchemy
 from marshmallow import post_load
 from marshmallow_jsonapi import fields
 from marshmallow_jsonapi import Schema
+from marshmallow_jsonapi.fields import Relationship
+import json
 
 # Flask application and database configuration
 
@@ -68,13 +70,15 @@ db = SQLAlchemy(app)
 
 # Flask-SQLAlchemy model definitions #
 
-
 class Person(db.Model):
+    __tablename__ = 'person'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.Unicode)
+    # articles = db.relationship('Article', backref=db.backref('author'))
 
 
 class Article(db.Model):
+    __tablename__ = 'article'
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.Unicode)
     author_id = db.Column(db.Unicode, db.ForeignKey(Person.id))
@@ -101,7 +105,9 @@ class PersonSchema(Schema):
         related_url_kwargs={'articleid': '<id>'},
         many=True,
         include_data=True,
-        type_='articles',
+        include_resource_linkage=True,
+        type_='article',
+        schema='ArticleSchema'
     )
 
     @post_load
@@ -127,7 +133,7 @@ class ArticleSchema(Schema):
         related_url_kwargs={'personid': '<id>'},
         include_data=True,
         type_='person',
-        schema=PersonSchema
+        schema='PersonSchema'
     )
 
     @post_load
@@ -149,13 +155,51 @@ class MarshmallowSerializer(DefaultSerializer):
         schema = self.schema_class(many=True, only=only)
         return schema.dump(instances).data
 
-
 class MarshmallowDeserializer(DefaultDeserializer):
 
     schema_class = None
 
     def deserialize(self, document):
+        # import json
         schema = self.schema_class()
+
+        # documentjson = json.loads(document)
+
+        # inspired by flask-rest-jsonapi
+        rltnshps = [key for (key, value) in schema._declared_fields.items() if isinstance(value, Relationship)]
+
+        # posted_rltns = document.get('relationships')
+        posted_rltns = document.get('data').get('relationships')
+        ids = []
+        for (key, val) in posted_rltns.items():
+            data = val.get('data')
+            if isinstance(data, list):
+                for x in data:
+                    d = {}
+                    d[key] = x.get('id')
+                    ids.append(d)
+            else:
+                d = {}
+                d[key] = data.get('id')
+                ids.append(d)
+
+        existing = []
+        for id in ids:
+            field, val = list(id.keys())
+            rltd_model = getattr(self.model, field)
+            exist = self.session.query(rltd_model).get(val)
+            if exist != None:
+                existing.append(exist)
+
+
+        # for rlt in rltnshps:
+        #     rltattr = getattr(schema.Meta.model, rlt)
+        deserialized_inst = schema.load(document).data
+
+
+        # json =
+        # for (key, val) in self.schema_class._declared_fields.items():
+        #     print('key', key)
         return schema.load(document).data
 
     def deserialize_many(self, document):
@@ -183,11 +227,11 @@ if __name__ == '__main__':
     db.create_all()
     manager = APIManager(app, flask_sqlalchemy_db=db)
 
-    manager.create_api(Person, methods=['GET', 'POST'],
+    manager.create_api(Person, methods=['GET', 'PATCH', 'POST'],
                        serializer_class=PersonSerializer,
-                       deserializer_class=PersonDeserializer)
-    manager.create_api(Article, methods=['GET', 'POST'],
+                       deserializer_class=PersonDeserializer, allow_to_many_replacement=True)
+    manager.create_api(Article, methods=['GET', 'PATCH', 'POST'],
                        serializer_class=ArticleSerializer,
-                       deserializer_class=ArticleDeserializer)
+                       deserializer_class=ArticleDeserializer, allow_to_many_replacement=True)
 
     app.run()
