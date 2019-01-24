@@ -59,6 +59,10 @@ from marshmallow_jsonapi import fields
 from marshmallow_jsonapi import Schema
 from marshmallow_jsonapi.fields import Relationship
 import json
+from sqlalchemy.ext.associationproxy import (
+    _AssociationDict, _AssociationList, _AssociationSet)
+from sqlalchemy.orm.collections import (
+    InstrumentedList, MappedCollection)
 
 # Flask application and database configuration
 
@@ -141,6 +145,11 @@ class ArticleSchema(Schema):
         return Article(**data)
 
 
+def is_list_like(rel_instance):
+    return (isinstance(rel_instance, list) or isinstance(rel_instance, set)
+            or isinstance(rel_instance, _AssociationList)
+            or isinstance(rel_instance, _AssociationSet)
+            or isinstance(rel_instance, InstrumentedList))
 # Serializer and deserializer classes #
 
 class MarshmallowSerializer(DefaultSerializer):
@@ -172,33 +181,43 @@ class MarshmallowDeserializer(DefaultDeserializer):
 
         # posted_rltns = document.get('relationships')
         posted_rltns = document.get('data').get('relationships')
-        ids = []
+        existing = []
         for (key, val) in posted_rltns.items():
             data = val.get('data')
             data = data if (isinstance(data, list)) else [data]
 
-            for x in data:
-                d = {}
-                d[key] = x.get('id')
-                ids.append(d)
-            else:
-                d = {}
-                d[key] = data.get('id')
-                ids.append(d)
+            for i, x in enumerate(data):
+                id = x.get('id')
+                rltd_model = getattr(self.model, key).property.mapper.class_
+                exist = self.session.query(rltd_model).get(id)
+                if exist != None:
+                    existing.append({key: exist})
+
+                del document['data'].get('relationships')[key]['data'][i]
+                # d = {}
+                # d[key] = x.get('id')
+                # ids.append(d)
 
 
-        existing = []
-        for id in ids:
-            field, val = list(id.items())[0]
-            rltd_model = getattr(self.model, field).property.mapper.class_
-            exist = self.session.query(rltd_model).get(val)
-            if exist != None:
-                existing.append(exist)
+        # existing = []
+        # for id in ids:
+        #     field, val = list(id.items())[0]
+        #     rltd_model = getattr(self.model, field).property.mapper.class_
+        #     exist = self.session.query(rltd_model).get(val)
+        #     if exist != None:
+        #         existing.append(exist)
 
 
         # for rlt in rltnshps:
         #     rltattr = getattr(schema.Meta.model, rlt)
         deserialized_inst = schema.load(document).data
+
+        for ex in existing:
+            k, v = ex.items()[0]
+            field = getattr(deserialized_inst, k)
+
+            if is_list_like(field):
+                field.append(v)
 
 
         # json =
